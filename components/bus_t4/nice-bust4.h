@@ -1,23 +1,21 @@
 /*
   Nice BusT4
-  Обмен данными по UART на скорости 19200 8n1
-  Перед пакетом с данными отправляется break длительностью 519us (10 бит)
-  Содержимое пакета, которое удалось понять, описано в структуре packet_cmd_body_t
+  UART communication at 19200 8n1 speed
+  Before the data packet, a break is sent with a duration of 519us (10 bits)
+  The contents of the packet that could be understood are described in the structure packet_cmd_body_t
 
- 
-
-  Для Oview к адресу всегда прибавляется 80.
-  Адрес контроллера ворот без изменений.
+  For Oview, 80 is always added to the address.
+  Gate controller address unchanged.
 
 
-Подключение
+Connection
 
 BusT4                       ESP8266
 
-Стенка устройства        Rx Tx GND
+Device Rx Tx GND
 9  7  5  3  1  
 10 8  6  4  2
-место для кабеля
+place for cable
             1 ---------- Rx
             2 ---------- GND
             4 ---------- Tx
@@ -26,16 +24,16 @@ BusT4                       ESP8266
 
 
 
-Из мануала nice_dmbm_integration_protocol.pdf
+From the manual nice_dmbm_integration_protocol.pdf
 
-• ADR: это адрес сети NICE, где находятся устройства, которыми вы хотите управлять. Это может быть значение от 1 до 63 (от 1 до 3F).
-Это значение должно быть в HEX. Если адресатом является модуль интеграции на DIN-BAR, это значение равно 0 (adr = 0), если адресат
-является интеллектуальным двигателем, это значение равно 1 (adr = 1).
-• EPT: это адрес двигателя Nice, входящего в сетевой ADR. Это может быть значение от 1 до 127. Это значение должно быть в HEX.
-• CMD: это команда, которую вы хотите отправить по назначению (ADR, EPT).
-• PRF: команда установки профиля.
-• FNC: это функция, которую вы хотите отправить по назначению (ADR, EPT).
-• EVT: это событие, которое отправляется в пункт назначения (ADR, EPT).
+• ADR: This is the address of the NICE network where the devices you want to manage are located. This can be a value from 1 to 63 (1 to 3F).
+This value must be in HEX. If the destination is an integration module on DIN-BAR, this value is 0 (adr = 0) if the destination is
+is an intelligent engine, this value is 1 (adr = 1).
+• EPT: This is the address of the Nice engine included in the network ADR. It can be a value between 1 and 127. This value must be in HEX.
+• CMD: This is the command you want to send to the destination (ADR, EPT).
+• PRF: profile setup command.
+• FNC: This is the function you want to send to the destination (ADR, EPT).
+• EVT: This is the event that is sent to the destination (ADR, EPT).
 
 
 
@@ -46,320 +44,299 @@ BusT4                       ESP8266
 
 #include "esphome.h"
 #include "esphome/core/component.h"
-#include "esphome/core/automation.h"           // для добавления Action
+#include "esphome/core/automation.h"           // to add Action
 #include "esphome/components/cover/cover.h"
 #include <HardwareSerial.h>
-#include "esphome/core/helpers.h"              // парсим строки встроенными инструментами
-#include <queue>                               // для работы с очередью
+#include "esphome/core/helpers.h"              // parse strings with built-in tools
+#include <queue>                               // to work with the queue
 
 
 
 namespace esphome {
 namespace bus_t4 {
 
-/* для короткого обращения к членам класса */
+/* for short reference to class members */
 using namespace esphome::cover;
 //using esp8266::timeoutTemplate::oneShotMs;
 
 
-static const int _UART_NO=UART0; /* номер uart */
-static const int TX_P = 1;         /* пин Tx */
-static const uint32_t BAUD_BREAK = 9200; /* бодрэйт для длинного импульса перед пакетом */
-static const uint32_t BAUD_WORK = 19200; /* рабочий бодрэйт */
-static const uint8_t START_CODE = 0x55; /*стартовый байт пакета */
+static const int _UART_NO=UART0; /* uart number */
+static const int TX_P = 1;         /* pin Tx */
+static const uint32_t BAUD_BREAK = 9200; /* baudrate for a long pulse before the packet */
+static const uint32_t BAUD_WORK = 19200; /* working baudrate */
+static const uint8_t START_CODE = 0x55; /* packet start byte */
 
 
-/* сетевые настройки esp
-  Ряд может принимать значения от 0 до 63, по-умолчанию 0
-  Адрес OVIEW начинается с 8
+/* esp network settings
+  The series can take values from 0 to 63, by default 0
+  OVIEW address starts with 8
 
-  При объединении в сеть несколько приводов с OXI необходимо для разных приводов указать разные ряды.
-  В этом случае У OXI ряд должен быть как у привода, которым он управляет.
+  When networking several drives with OXI, different rows must be specified for different drives.
+  In this case, the OXI must have the same row as the drive it controls.
 */
 
-
-
-
-
-
-/* Тип сообщения пакетов
-  пока нас интересует только CMD и INF
-  остальные глубоко не изучал и номера не проверял
-  6-й байт пакетов CMD и INF
+/* Packet message type
+  so far we are only interested in CMD and INF
+  for the rest, I did not check the numbers
+  6th byte of CMD and INF packets
 */
 enum mes_type : uint8_t {
-  CMD = 0x01,  /* номер проверен, отправка команд автоматике */
-//  LSC = 0x02,  /* работа со списками сценариев */
-//  LST = 0x03,  /* работа со списками автоматик */
-//  POS = 0x04,  /* запрос и изменение позиции автоматики */
-//  GRP = 0x05,  /* отправка команд группе автоматик с указанием битовой маски мотора */
-//  SCN = 0x06,  /* работа со сценариями */
-//  GRC = 0x07,  /* отправка команд группе автоматик, созданных через Nice Screen Configuration Tool */
-  INF = 0x08,  /* возвращает или устанавливает информацию об устройстве */
-//  LGR = 0x09,  /* работа со списками групп */
-//  CGR = 0x0A,  /* работа с категориями групп, созданных через Nice Screen Configuration Tool */
+  CMD = 0x01,  /* number verified, sending commands to automation */
+//  LSC = 0x02,  /* working with script lists */
+//  LST = 0x03,  /* work with automatic lists */
+//  POS = 0x04,  /* request and change the position of automation */
+//  GRP = 0x05,  /* sending commands to a group of automations indicating the bit mask of the motor */
+//  SCN = 0x06,  /* working with scripts */
+//  GRC = 0x07,  /* sending commands to a group of automations created through Nice Screen Configuration Tool */
+  INF = 0x08,  /* returns or sets device information */
+//  LGR = 0x09,  /* working with group lists */
+//  CGR = 0x0A,  /* work with categories of groups created through Nice Screen Configuration Tool */
 };
 
-
-
-
 /* 
-меню команды в иерархии oview
-9-й байт пакетов CMD
+command menu in oview hierarchy
+9th byte of CMD packets
 */
 enum cmd_mnu  : uint8_t {
   CONTROL = 0x01,
 };
 
 
-/* используется в ответах STA*/
+/* used in STA responses */
 enum sub_run_cmd2 : uint8_t {
   STA_OPENING  = 0x02,	
   STA_CLOSING  = 0x03,
   OPENED   = 0x04,
   CLOSED   = 0x05,
   STOPPED   = 0x08,	
-  ENDTIME = 0x06, // закончен маневр по таймауту	
+  ENDTIME = 0x06, // finished maneuver with timeout
+};
 
-};	
-
-/* Ошибки */
+/* Errors */
 enum errors_byte  : uint8_t {
-  NOERR = 0x00, // Нет ошибок
-  FD = 0xFD,    // Нет команды для этого устройства
-  };
+  NOERR = 0x00, // No error
+  FD = 0xFD, // No command for this device
+};
 
-// Типы моторов
+// Motor types
 enum motor_type  : uint8_t {
   SLIDING = 0x01, 
   SECTIONAL = 0x02,
   SWING = 0x03,
   BARRIER = 0x04,
-  UPANDOVER = 0x05, // up-and-over подъемно-поворотные ворота
-  };
+  UPANDOVER = 0x05,
+};
 
-//  девятый байт
+// 9th byte
 enum whose_pkt  : uint8_t {
-  FOR_ALL = 0x00,  /* пакет для/от всех */
-  FOR_CU = 0x04,  /* пакет для/от блока управления */
-  FOR_OXI = 0x0A,  /* пакет для/от приемника OXI */
-  };
+  FOR_ALL = 0x00,  /* package for/from everyone */
+  FOR_CU = 0x04,  /* package to/from control unit */
+  FOR_OXI = 0x0A,  /* package to/from OXI receiver */
+};
 	
-// десятый байт GET/SET пакетов EVT, для пакетов CMD встречалось только значение RUN
+// 10th byte of GET/SET of EVT packets, only RUN was encountered for CMD packets
 enum setup_submnu  : uint8_t {
-  WHO	         = 0x04,  /* Кто в сети?     */
-  IN1            = 0x71,  /* Настройка входов */
-  IN2            = 0x72,  /* Настройка входов */
-  IN3            = 0x73,  /* Настройка входов */
-  IN4            = 0x74,  /* Настройка входов */
-  COMM_SBS       = 0x61,  /* Настройка команд - Пошагово */	  
-  COMM_POPN      = 0x62,  /* Настройка команд - Открыть частично */	  	  
-  COMM_OPN       = 0x63,  /* Настройка команд - Открыть */	  	  	  
-  COMM_CLS       = 0x64,  /* Настройка команд - Закрыть */	  
-  COMM_STP       = 0x65,  /* Настройка команд - СТОП */		  
-  COMM_PHOTO     = 0x68,  /* Настройка команд - Фото */		  
-  COMM_PHOTO2    = 0x69,  /* Настройка команд - Фото2 */
-  COMM_PHOTO3    = 0x6A,  /* Настройка команд - Фото3 */
-  COMM_OPN_STP   = 0x6B,  /* Настройка команд - Стоп при открывании */	  
-  COMM_CLS_STP   = 0x6C,  /* Настройка команд - Стоп при закрывании */	  	  
-  COMM_LET_OPN   = 0x78,  /* Настройка команд - Помеха открыванию */	  	  	  
-  COMM_LET_CLS   = 0x79,  /* Настройка команд - Помеха закрыванию */	  	  	  	  
-  OUT1           = 0x51,  /* Настройка выходов */	  
-  OUT2           = 0x52,  /* Настройка выходов */	  	  
-  LOCK_TIME      = 0x5A,  /* Настройка выходов - Время работы замка */
-  S_CUP_TIME     = 0x5C,  /* Настройка выходов - Время работы присоски Suction Cup Time*/	  
-  LAMP_TIME      = 0x5B,  /* Настройка выходов - Время работы лампы освещения courtesy light Time*/
-  AUTOCLS        = 0x80,    /* Основные параметры - Автозакрывание */
-  P_TIME         = 0x81,    /* Основные параметры - Время паузы */
-  PH_CLS_ON      = 0x84,    /* Основные параметры - Закрыть после Фото - Активно */	  
-  PH_CLS_VAR     = 0x86,    /* Основные параметры - Закрыть после Фото - Режим */	  	  
-  PH_CLS_TIME    = 0x85,    /* Основные параметры - Закрыть после Фото - Время ожидания */	  	  	  
-  ALW_CLS_ON     = 0x88,    /* Основные параметры - Всегда закрывать - Активно */	  	  
-  ALW_CLS_VAR    = 0x8A,    /* Основные параметры - Всегда закрывать - Режим */	  	  
-  ALW_CLS_TIME   = 0x89,    /* Основные параметры - Всегда закрывать - Время ожидания */	  	  	  
-  OPN_PWR        = 0x4A,    /* Основные параметры - Управление усилием - Усилие открывания */	  	  	  	  	  
-  CLS_PWR        = 0x4B,    /* Основные параметры - Управление усилием - Усилие закрывания */	  	  	  	  	  	  
-  SPEED_OPN      = 0x42,    /* Основные параметры - Настройка скорости - Скорость открывания */	  	  	  	  	  	  	  
-  SPEED_CLS      = 0x43,    /* Основные параметры - Настройка скорости - Скорость закрывания */	  
-  SPEED_SLW_OPN  = 0x45,    /* Основные параметры - Настройка скорости - Скорость замедленного открывания */	
-  SPEED_SLW_CLS  = 0x46,    /* Основные параметры - Настройка скорости - Скорость замедленного закрывания */		  
-  START_ON       = 0x90,    /* Основные параметры - Настройка пуска - Активно */		  	  
-  START_TIME     = 0x91,    /* Основные параметры - Настройка пуска - Время пуска */		  	  	  
-  SLOW_ON        = 0xA2,    /* Основные параметры - Замедление */		  	  	  	  	  
-  BLINK_ON       = 0x94,    /* Основные параметры - Предмерцание - Активно */		  	  	  	  
-  BLINK_OPN_TIME = 0x95,    /* Основные параметры - Предмерцание - Время при открывании */		  	  	  	  	  
-  BLINK_CLS_TIME = 0x99,    /* Основные параметры - Предмерцание - Время при закрывании */		  	  	  	  	  	  
+  WHO	         = 0x04, // Who is online?
+  IN1            = 0x71, // Input setup
+  IN2            = 0x72, // Input setup
+  IN3            = 0x73, // Input setup
+  IN4            = 0x74, // Input setup
+  COMM_SBS       = 0x61, // Setting up commands - Step by step
+  COMM_POPN      = 0x62, // Command Settings - Open Partially	  
+  COMM_OPN       = 0x63, // Command settings - Open	  	  
+  COMM_CLS       = 0x64, // Command Settings - Close
+  COMM_STP       = 0x65, // Command setting - STOP
+  COMM_PHOTO     = 0x68, // Command setup - Photo
+  COMM_PHOTO2    = 0x69, // Command settings - Photo2
+  COMM_PHOTO3    = 0x6A, // Command settings - Photo3
+  COMM_OPN_STP   = 0x6B, // Command setting - Stop on opening
+  COMM_CLS_STP   = 0x6C, // Command settings - Stop on close
+  COMM_LET_OPN   = 0x78, // Command settings - Interference with opening
+  COMM_LET_CLS   = 0x79, // Command settings - Interference with closing
+  OUT1           = 0x51, // Output settings
+  OUT2           = 0x52, // Output settings
+  LOCK_TIME      = 0x5A, // Output settings - Lock operation time
+  S_CUP_TIME     = 0x5C, // Output Setting - Suction Cup Time
+  LAMP_TIME      = 0x5B, // Output settings - courtesy light time
+  AUTOCLS        = 0x80, // Basic Settings - Auto Close
+  P_TIME         = 0x81, // Main parameters - Pause time
+  PH_CLS_ON      = 0x84, // Main Options - Close after Photo - Active
+  PH_CLS_VAR     = 0x86, // Main Options - Close after Photo - Mode
+  PH_CLS_TIME    = 0x85, // Basic options - Close after Photo - Waiting time
+  ALW_CLS_ON     = 0x88, // Basic options - Always close - Active
+  ALW_CLS_VAR    = 0x8A, // Basic options - Always close - Mode
+  ALW_CLS_TIME   = 0x89, // Basic options - Always close - Timeout
+  OPN_PWR        = 0x4A, // Basic parameters - Force control - Opening force
+  CLS_PWR        = 0x4B, // Basic parameters - Force control - Closing force
+  SPEED_OPN      = 0x42, // Basic parameters - Speed setting - Opening speed
+  SPEED_CLS      = 0x43, // Basic parameters - Speed setting - Closing speed
+  SPEED_SLW_OPN  = 0x45, // Basic parameters - Speed setting - Slow opening speed
+  SPEED_SLW_CLS  = 0x46, // Basic parameters - Speed setting - Slow closing speed
+  START_ON       = 0x90, // Basic parameters - Start setting - Active
+  START_TIME     = 0x91, // Basic parameters - Start setting - Start time
+  SLOW_ON        = 0xA2, // Main parameters - Slowdown
+  BLINK_ON       = 0x94, // Basic parameters - Blink - Active
+  BLINK_OPN_TIME = 0x95, // Basic parameters - Blink - Opening time
+  BLINK_CLS_TIME = 0x99, // Basic parameters - Flicker - Time on closing
 	  
-  TYPE_M = 0x00,   // Запрос типа привода
-  INF_STATUS = 0x01, //	Состояние ворот (Открыто/Закрыто/Остановлено)	
-  MAC = 0x07,    // mac address.
-  MAN = 0x08,   // manufacturer.
-  PRD = 0x09,   // product.
-  HWR = 0x0a,   // hardware version.
-  FRM = 0x0b,   // firmware version.
-  DSC = 0x0c,   // description.
-  CUR_POS = 0x11,  // текущее условное положение автоматики 
-  MAX_OPN = 0x12,   // Максимально возможное открывание по энкодеру.
-  POS_MAX = 0x18,   // Максимальное положение (открывания) по энкодеру
-  POS_MIN = 0x19,   // Минимальное положение (закрывания) по энкодеру	
-  INF_P_OPN1 = 0x21, //	Частичное открывание1 
-  INF_P_OPN2 = 0x22, //	Частичное открывание2
-  INF_P_OPN3 = 0x23, //	Частичное открывание3
-  INF_SLOW_OPN = 0x24, // Замедление в открывании
-  INF_SLOW_CLS = 0x25, // Замедление в закрывании	
-  INF_IO = 0xD1,    //	состояние входов-выходов
+  TYPE_M = 0x00, // Actuator type query
+  INF_STATUS = 0x01, //	Gate status (Opened/Closed/Stopped)
+  MAC = 0x07, // Mac address
+  MAN = 0x08, // Manufacturer
+  PRD = 0x09, // Product
+  HWR = 0x0a, // Hardware version
+  FRM = 0x0b, // Firmware version
+  DSC = 0x0c, // Description
+  CUR_POS = 0x11, // Current position of automation
+  MAX_OPN = 0x12, // The maximum possible opening according to the encoder.
+  POS_MAX = 0x18, // Maximum position (opening) by encoder
+  POS_MIN = 0x19, // Minimum position (closing) by encoder
+  INF_P_OPN1 = 0x21, //	Partial opening1
+  INF_P_OPN2 = 0x22, //	Partial opening2
+  INF_P_OPN3 = 0x23, //	Partial opening3
+  INF_SLOW_OPN = 0x24, // Slowdown delay in opening
+  INF_SLOW_CLS = 0x25, // Slowdown delay in closing
+  INF_IO = 0xD1, // Input-output status
 
-  CUR_MAN = 0x02,  // Текущий Маневр
-  SUBMNU  = 0x04,  // Подменю
-  STA = 0xC0,   // статус в движении
-  MAIN_SET = 0x80,   // Основные параметры
-  RUN = 0x82,   // Команда для выполнения	  
-
-  };	
+  CUR_MAN = 0x02, // Current Maneuver
+  SUBMNU  = 0x04, // Submenu
+  STA = 0xC0, // Status in motion
+  MAIN_SET = 0x80, // Main settings
+  RUN = 0x82, // Command to execute
+};
 
 	
-/* run cmd 11-й байт EVT пакетов */
+/* run cmd byte 11 of EVT packets */
 enum run_cmd  : uint8_t {
-  SET = 0xA9,  /* запрос на изменение параметров */
-  GET = 0x99,   /* запрос на получение параметров */
-  GET_SUPP_CMD = 0x89, /* получить поддерживаемые команды */
-  };
+  SET = 0xA9, // parameter change request
+  GET = 0x99, // request to get parameters
+  GET_SUPP_CMD = 0x89, // get supported commands
+};
 
 
-/* Команда, которая должна быть выполнена.   
-11-й байт пакета CMD
-Используется в запросах и ответах */
+/* The command to be executed.
+11th byte of the CMD packet
+Used in requests and responses */
 enum control_cmd : uint8_t { 
-  SBS = 0x01,    /* Step by Step */
+  SBS = 0x01, // Step by Step
   STOP = 0x02,   /* Stop */
   OPEN = 0x03,   /* Open */
   CLOSE = 0x04,  /* Close */
   P_OPN1 = 0x05, /* Partial opening 1 - частичное открывание, режим калитки */
   P_OPN2 = 0x06, /* Partial opening 2 */
   P_OPN3 = 0x07, /* Partial opening 3 */
-  RSP = 0x19, /* ответ интерфейса, подтверждающий получение команды  */
-  EVT = 0x29, /* ответ интерфейса, отправляющий запрошенную информацию */
+  RSP = 0x19, /* interface response acknowledging receipt of the command  */
+  EVT = 0x29, /* interface response sending the requested information */
  
-  P_OPN4 = 0x0b, /* Partial opening 4 - Коллективно */
-  P_OPN5 = 0x0c, /* Partial opening 5 - Приоритет пошагово */
-  P_OPN6 = 0x0d, /* Partial opening 6 - Открыть и блокировать */
-  UNLK_OPN = 0x19, /* Разблокировать и открыть */
-  CLS_LOCK = 0x0E, /* Закрыть и блокировать */
-  UNLCK_CLS = 0x1A, /*  Разблокировать и Закрыть */
-  LOCK = 0x0F, /* Блокировать*/
-  UNLOCK = 0x10, /* Разблокировать */
-  LIGHT_TIMER = 0x11, /* Таймер освещения */
-  LIGHT_SW = 0x12, /* Освещение вкл/выкл */
-  HOST_SBS = 0x13, /* Ведущий SBS */
-  HOST_OPN = 0x14, /* Ведущий открыть */
-  HOST_CLS = 0x15, /* Ведущий закрыть */
-  SLAVE_SBS = 0x16, /*  Ведомый SBS */
-  SLAVE_OPN = 0x17, /* Ведомый открыть */
-  SLAVE_CLS = 0x18, /* Ведомый закрыть */
-  AUTO_ON = 0x1B, /* Автооткрывание активно */
-  AUTO_OFF = 0x1C, /* Автооткрывание неактивно	  */
-  
+  P_OPN4 = 0x0b, /* Partial opening 4 - shared */
+  P_OPN5 = 0x0c, /* Partial opening 5 - Priority step by step */
+  P_OPN6 = 0x0d, /* Partial opening 6 - Open and block */
+  UNLK_OPN = 0x19, /* Unlock and open */
+  CLS_LOCK = 0x0E, /* Close and block */
+  UNLCK_CLS = 0x1A, /*  Unlock and close */
+  LOCK = 0x0F, /* Lock */
+  UNLOCK = 0x10, /* Unlock */
+  LIGHT_TIMER = 0x11, /* Light timer */
+  LIGHT_SW = 0x12, /* Light on/off */
+  HOST_SBS = 0x13, /* Host SBS */
+  HOST_OPN = 0x14, /* Lead open */
+  HOST_CLS = 0x15, /* Lead close */
+  SLAVE_SBS = 0x16, /* Slave SBS */
+  SLAVE_OPN = 0x17, /* Slave open */
+  SLAVE_CLS = 0x18, /* Slave close */
+  AUTO_ON = 0x1B, /* Auto open active */
+  AUTO_OFF = 0x1C, /* Auto open inactive */
 };
-	
-	
-	
-	
-	
-	
-/* Информация для лучшего понимания состава пакетов в протоколе */
-// тело пакета запроса CMD
-// пакеты с размером тела 0x0c=12 байт 
-	/*
+
+/* Information for a better understanding of the composition of packets in the protocol */
+
+// CMD request packet body
+// packets with body size 0x0c=12 bytes
+/*
 struct packet_cmd_body_t {
-  uint8_t byte_55;              // Заголовок, всегда 0x55
-  uint8_t pct_size1;                // размер тела пакета (без заголовка и CRC. Общее количество  байт минус три), для команд = 0x0c
-  uint8_t for_series;           // серия кому пакет ff = всем
-  uint8_t for_address;          // адрес кому пакет ff = всем
-  uint8_t from_series;           // серия от кого пакет
-  uint8_t from_address;          // адрес от кого пакет
-  uint8_t mes_type;           // тип сообщения, 1 = CMD, 8 = INF
-  uint8_t mes_size;              // количество байт дальше за вычетом двух байт CRC в конце, для команд = 5
-  uint8_t crc1;                // CRC1, XOR шести предыдущих байт
-  uint8_t cmd_mnu;                // Меню команды. cmd_mnu = 1 для команд управления
-  uint8_t setup_submnu;            // Подменю, в сочетании с группой команды определяет тип отправляемого сообщения
-  uint8_t control_cmd;            // Команда, которая должна быть выполнена
-  uint8_t offset;            //  Смещение для ответов. Влияет на запросы вроде списка поддерживаемых комманд
-  uint8_t crc2;            // crc2, XOR четырех предыдущих байт
-  uint8_t pct_size2;            // размер тела пакета (без заголовка и CRC. Общее количество  байт минус три), для команд = 0x0c
+  uint8_t byte_55; // Title, always 0x55
+  uint8_t pct_size1; // Packet body size (without header and CRC. Total number of bytes minus three), for commands = 0x0c
+  uint8_t for_series; // series to whom package ff = to all
+  uint8_t for_address; // address to whom package ff = to all
+  uint8_t from_series; // series from whom package
+  uint8_t from_address; // address from whom the package is
+  uint8_t mes_type; // message type, 1 = CMD, 8 = INF
+  uint8_t mes_size; // number of bytes further minus two CRC bytes at the end, for commands = 5
+  uint8_t crc1; // CRC1, XOR of the previous six bytes
+  uint8_t cmd_mnu; // Command menu. cmd_mnu = 1 for control commands
+  uint8_t setup_submnu; // The submenu, combined with the command group, determines the type of message to be sent.
+  uint8_t control_cmd; // Command to be executed
+  uint8_t offset; // Offset for responses. Affects queries like the list of supported commands
+  uint8_t crc2; // crc2, XOR the previous four bytes
+  uint8_t pct_size2; // packet body size (without header and CRC. Total number of bytes minus three), for commands = 0x0c
 
 };
 
-
-
-
-
-// тело пакета ответа RSP
-// пакеты с размером тела 0x0e=14 байт 
+// RSP response packet body
+// packets with body size 0x0e=14 bytes
 struct packet_rsp_body_t {
-  uint8_t byte_55;              // Заголовок, всегда 0x55
-  uint8_t pct_size1;                // размер тела пакета (без заголовка и CRC. Общее количество  байт минус три), >= 0x0e
-  uint8_t to_series;           // серия кому пакет ff = всем
-  uint8_t to_address;          // адрес кому пакет ff = всем
-  uint8_t from_series;           // серия от кого пакет
-  uint8_t from_address;          // адрес от кого пакет
-  uint8_t mes_type;           // тип сообщения, для этих пакетов всегда  8 = INF
-  uint8_t mes_size;              // количество байт дальше за вычетом двух байт CRC в конце, для команд = 5
-  uint8_t crc1;                // CRC1, XOR шести предыдущих байт
-  uint8_t cmd_mnu;                // Меню команды. cmd_mnu = 1 для команд управления
-  uint8_t sub_inf_cmd;            // Из какого подменю получил команду. Значение меньше на 0x80, чем первоначальное подменю
-  uint8_t sub_run_cmd;            // Какую команду получил. Значение больше на 0x80, чем полученная команда
-  uint8_t hb_data;             // данные, старший бит
-  uint8_t lb_data;            // данные, младший бит
-  uint8_t err;               // Ошибки
-  uint8_t crc2;            // crc2, XOR четырех предыдущих байт
-  uint8_t pct_size2;            // размер тела пакета (без заголовка и CRC. Общее количество  байт минус три), >= 0x0e
+  uint8_t byte_55; // Title, always 0x55
+  uint8_t pct_size1; // packet body size (without header and CRC. Total number of bytes minus three), >= 0x0e
+  uint8_t to_series; // series to whom package ff = to all
+  uint8_t to_address; // address to whom package ff = to all
+  uint8_t from_series; // series from whom package
+  uint8_t from_address; // address from whom the package is
+  uint8_t mes_type; // message type, for these packets always 8 = INF
+  uint8_t mes_size; // number of bytes further minus two CRC bytes at the end, for commands = 5
+  uint8_t crc1; // CRC1, XOR of the previous six bytes
+  uint8_t cmd_mnu; // Command menu. cmd_mnu = 1 for control commands
+  uint8_t sub_inf_cmd; // From which submenu the command was received. The value is 0x80 less than the original submenu
+  uint8_t sub_run_cmd; // What command did you get. The value is 0x80 greater than the received command
+  uint8_t hb_data; // data high bit
+  uint8_t lb_data; // data low bit
+  uint8_t err; // error
+  uint8_t crc2; // crc2, XOR the previous four bytes
+  uint8_t pct_size2; // packet body size (without header and CRC. Total number of bytes minus three), >= 0x0e
 
 };
 	
- // тело пакета ответа с данными EVT
+ // response packet body with EVT data
  
  struct packet_evt_body_t {
-  uint8_t byte_55;              // Заголовок, всегда 0x55
-  uint8_t pct_size1;                // размер тела пакета (без заголовка и CRC. Общее количество  байт минус три), >= 0x0e
-  uint8_t to_series;           // серия кому пакет ff = всем
-  uint8_t to_address;          // адрес кому пакет ff = всем
-  uint8_t from_series;           // серия от кого пакет
-  uint8_t from_address;          // адрес от кого пакет
-  uint8_t mes_type;           // тип сообщения, для этих пакетов всегда  8 = INF
-  uint8_t mes_size;              // количество байт дальше за вычетом двух байт CRC в конце, для команд = 5
-  uint8_t crc1;                // CRC1, XOR шести предыдущих байт
-  uint8_t whose;                // Чей пакет. Варианты: 00 - общий, 04 - контроллера привода, 0A - приемника OXI
-  uint8_t setup_submnu;            // Из какого подменю получил команду. Значение равно первоначальному подменю
-  uint8_t sub_run_cmd;            // На какую команду отвечаем. Значение меньше на 0x80, чем отправленная ранее команда
-  uint8_t next_data;            // Следующий блок данных
-  uint8_t err;               // Ошибки
-  uint8_t data_blk;            // Блок данных, может занимать несколько байт
-  uint8_t crc2;            // crc2, XOR всех предыдущих байт до девятого (Чей пакет)
-  uint8_t pct_size2;            // размер тела пакета (без заголовка и CRC. Общее количество  байт минус три), >= 0x0e
+  uint8_t byte_55; // Title, always 0x55
+  uint8_t pct_size1; // packet body size (without header and CRC. Total number of bytes minus three), >= 0x0e
+  uint8_t to_series; // series to whom package ff = to all
+  uint8_t to_address; // address to whom package ff = to all
+  uint8_t from_series; // series from whom package
+  uint8_t from_address; // address from whom the package is
+  uint8_t mes_type; // message type, for these packets always 8 = INF
+  uint8_t mes_size; // number of bytes further minus two CRC bytes at the end, for commands = 5
+  uint8_t crc1; // CRC1, XOR of the previous six bytes
+  uint8_t whose; // Whose package. Options: 00 - common, 04 - drive controller, 0A - OXI receiver
+  uint8_t setup_submnu; // From which submenu the command was received. The value is equal to the original submenu
+  uint8_t sub_run_cmd; // What command are we responding to? The value is 0x80 less than the previously sent command
+  uint8_t next_data; // Next block of data
+  uint8_t err; // error
+  uint8_t data_blk; // Data block, can take several bytes
+  uint8_t crc2; // crc2, XOR all previous bytes up to ninth (Whose packet)
+  uint8_t pct_size2; // packet body size (without header and CRC. Total number of bytes minus three), >= 0x0e
 
 };
- 
- 
 */
 
 
-// создаю класс, наследую членов классов Component и Cover
+// I create a class, inherit members of the Component and Cover classes
 class NiceBusT4 : public Component, public Cover {
   public:
 	
-    // настройки привода
-    bool autocls_flag; // Автозакрывание - L1
-    bool photocls_flag; // Закрыть после фото - L2
-    bool alwayscls_flag; // Всегда закрывать - L3
+    // drive settings
+    bool autocls_flag; // Auto close - L1
+    bool photocls_flag; // Close after photo - L2
+    bool alwayscls_flag; // Always Close - L3
 		
     void setup() override;
     void loop() override;
-    void dump_config() override; // для вывода в лог информации об оборудовнии
+    void dump_config() override; // to display equipment information in the log
 
     void send_raw_cmd(std::string data);
     void send_cmd(uint8_t data) {this->tx_buffer_.push(gen_control_cmd(data));}	
-    void send_inf_cmd(std::string to_addr, std::string whose, std::string command, std::string type_command,  std::string next_data, bool data_on, std::string data_command); // длинная команда
-    void set_mcu(std::string command, std::string data_command); // команда контроллеру мотора
+    void send_inf_cmd(std::string to_addr, std::string whose, std::string command, std::string type_command,  std::string next_data, bool data_on, std::string data_command); // long command
+    void set_mcu(std::string command, std::string data_command); // command to the motor controller
 		
 
     void set_class_gate(uint8_t class_gate) { class_gate_ = class_gate; }
@@ -367,10 +344,13 @@ class NiceBusT4 : public Component, public Cover {
     void set_to_address(uint16_t to_address) {this->to_addr = to_address;}
     void set_from_address(uint16_t from_address) {this->from_addr = from_address;} 
     void set_oxi_address(uint16_t oxi_address) {this->oxi_addr = oxi_address;}
-    
- /*   void set_update_interval(uint32_t update_interval) {  // интервал получения статуса привода
+
+    /*   
+    // drive status acquisition interval
+    void set_update_interval(uint32_t update_interval) {
       this->update_interval_ = update_interval;
-    }*/
+    }
+    */
 
     cover::CoverTraits get_traits() override;
 
@@ -394,30 +374,30 @@ class NiceBusT4 : public Component, public Cover {
     bool init_oxi_flag = false;	
 
 	
-    // переменные для uart
+    // variables for uart
     uint8_t _uart_nr;
     uart_t* _uart = nullptr;
-    uint16_t _max_opn = 0;  // максимальная позиция энкодера или таймера
-    uint16_t _pos_opn = 2048;  // позиция открытия энкодера или таймера, не для всех приводов	
-    uint16_t _pos_cls = 0;  // позиция закрытия энкодера или таймера, не для всех приводов
-    uint16_t _pos_usl = 0;  // условная текущая позиция энкодера или таймера, не для всех приводов	
-    // настройки заголовка формируемого пакета
-    uint16_t from_addr  = 0x0066; //от кого пакет, адрес bust4 шлюза
-    uint16_t to_addr; // = 0x00ff;	 // кому пакет, адрес контроллера привода, которым управляем
-    uint16_t oxi_addr; // = 0x000a;	 // адрес приемника
+    uint16_t _max_opn = 0;  // maximum encoder or timer position
+    uint16_t _pos_opn = 2048;  // encoder or timer opening position, not for all drives
+    uint16_t _pos_cls = 0;  // encoder or timer close position, not for all drives
+    uint16_t _pos_usl = 0;  // conditional current position of encoder or timer, not for all drives
+    // packet header settings
+    uint16_t from_addr  = 0x0066; // from whom the packet is, bust4 gateway address
+    uint16_t to_addr; // = 0x00ff; // to whom the packet is, the address of the drive controller that we control
+    uint16_t oxi_addr; // = 0x000a; // receiver address
     
 
-    std::vector<uint8_t> raw_cmd_prepare (std::string data);             // подготовка введенных пользователем данных для возможности отправки	
+    std::vector<uint8_t> raw_cmd_prepare (std::string data); // preparation of user-entered data for the possibility of sending
 	
-    // генерация inf команд
-    std::vector<uint8_t> gen_inf_cmd(const uint8_t to_addr1, const uint8_t to_addr2, const uint8_t whose, const uint8_t inf_cmd, const uint8_t run_cmd, const uint8_t next_data, const std::vector<uint8_t> &data, size_t len);	 // все поля
-    std::vector<uint8_t> gen_inf_cmd(const uint8_t whose, const uint8_t inf_cmd, const uint8_t run_cmd) {return gen_inf_cmd((uint8_t)(this->to_addr >> 8), (uint8_t)(this->to_addr & 0xFF), whose, inf_cmd, run_cmd, 0x00, {0x00}, 0 );} // для команд без данных
+    // inf command generation
+    std::vector<uint8_t> gen_inf_cmd(const uint8_t to_addr1, const uint8_t to_addr2, const uint8_t whose, const uint8_t inf_cmd, const uint8_t run_cmd, const uint8_t next_data, const std::vector<uint8_t> &data, size_t len);	 // all fields
+    std::vector<uint8_t> gen_inf_cmd(const uint8_t whose, const uint8_t inf_cmd, const uint8_t run_cmd) {return gen_inf_cmd((uint8_t)(this->to_addr >> 8), (uint8_t)(this->to_addr & 0xFF), whose, inf_cmd, run_cmd, 0x00, {0x00}, 0 );} // for commands without data
     std::vector<uint8_t> gen_inf_cmd(const uint8_t whose, const uint8_t inf_cmd, const uint8_t run_cmd, const uint8_t next_data, std::vector<uint8_t> data){
-	    return gen_inf_cmd((uint8_t)(this->to_addr >> 8), (uint8_t)(this->to_addr & 0xFF), whose, inf_cmd, run_cmd, next_data, data, data.size());} // для команд c данными
+	    return gen_inf_cmd((uint8_t)(this->to_addr >> 8), (uint8_t)(this->to_addr & 0xFF), whose, inf_cmd, run_cmd, next_data, data, data.size());} // for commands with data
     std::vector<uint8_t> gen_inf_cmd(const uint8_t to_addr1, const uint8_t to_addr2, const uint8_t whose, const uint8_t inf_cmd, const uint8_t run_cmd, const uint8_t next_data){
-	    return gen_inf_cmd(to_addr1, to_addr2, whose, inf_cmd, run_cmd, next_data, {0x00}, 0);} // для команд с адресом и без данных 	
+	    return gen_inf_cmd(to_addr1, to_addr2, whose, inf_cmd, run_cmd, next_data, {0x00}, 0);} // for commands with address and without data
     	    
-    // генерация cmd команд
+    // generating cmd commands
     std::vector<uint8_t> gen_control_cmd(const uint8_t control_cmd);	    	
 	
     void init_device (const uint8_t addr1, const uint8_t addr2, const uint8_t device );
@@ -425,15 +405,15 @@ class NiceBusT4 : public Component, public Cover {
     void send_array_cmd (const uint8_t *data, size_t len);
 
 
-    void parse_status_packet (const std::vector<uint8_t> &data); // разбираем пакет статуса
+    void parse_status_packet (const std::vector<uint8_t> &data); // parsing the status package
     
-    void handle_char_(uint8_t c);                                         // обработчик полученного байта
-    void handle_datapoint_(const uint8_t *buffer, size_t len);          // обработчик полученных данных
-    bool validate_message_();                                         // функция проверки полученного сообщения
+    void handle_char_(uint8_t c); // received byte handler
+    void handle_datapoint_(const uint8_t *buffer, size_t len); // received data handler
+    bool validate_message_(); // function of checking the received message
 
-    std::vector<uint8_t> rx_message_;                          // здесь побайтно накапливается принятое сообщение
-    std::queue<std::vector<uint8_t>> tx_buffer_;             // очередь команд для отправки	
-    bool ready_to_tx_{true};	                           // флаг возможности отправлять команды
+    std::vector<uint8_t> rx_message_; // here the received message is accumulated byte by byte
+    std::queue<std::vector<uint8_t>> tx_buffer_; // command queue to send
+    bool ready_to_tx_{true}; // command flag
 	
     std::vector<uint8_t> manufacturer_;
     std::vector<uint8_t> product_;
@@ -445,7 +425,7 @@ class NiceBusT4 : public Component, public Cover {
     std::vector<uint8_t> oxi_firmware;
     std::vector<uint8_t> oxi_description;	
 
-}; //класс
+};
 
-} // namespace bus_t4
-} // namespace esphome
+}
+}
