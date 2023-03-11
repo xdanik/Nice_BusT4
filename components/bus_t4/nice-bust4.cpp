@@ -449,6 +449,11 @@ void NiceBusT4::parse_status_packet (const std::vector<uint8_t> &data) {
                 this->position = COVER_OPEN;
                 ESP_LOGI(TAG, "Operation: Opened");
                 this->current_operation = COVER_OPERATION_IDLE;
+                // calibrate opened possition if the motor does not report max supported position
+                if (this->_max_opn == 0) {
+                  this->_pos_opn = this->_pos_usl;
+                  ESP_LOGI(TAG, "Opened position calibrated");
+                }
                 break;
               case STOPPED:
                 this->current_operation = COVER_OPERATION_IDLE;
@@ -464,10 +469,12 @@ void NiceBusT4::parse_status_packet (const std::vector<uint8_t> &data) {
             ESP_LOGI(TAG,  "Submenu status in motion" );
             switch (data[11]) {
               case STA_OPENING:
+              case 0x83:
                 ESP_LOGI(TAG,  "Movement: Opening" );
                 this->current_operation = COVER_OPERATION_OPENING;
                 break;
               case STA_CLOSING:
+              case 0x84:
                 ESP_LOGI(TAG,  "Movement: Closing" );
                 this->current_operation = COVER_OPERATION_CLOSING;
                 break;
