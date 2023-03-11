@@ -458,6 +458,7 @@ void NiceBusT4::parse_status_packet (const std::vector<uint8_t> &data) {
                 }
                 break;
               case STOPPED:
+              case 0x10: // partialy oppened
                 this->current_operation = COVER_OPERATION_IDLE;
                 ESP_LOGI(TAG, "Operation: Stopped");
                 break;
