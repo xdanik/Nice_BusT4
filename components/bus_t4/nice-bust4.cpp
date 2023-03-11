@@ -40,11 +40,13 @@ void NiceBusT4::control(const CoverCall &call) {
     auto pos = *call.get_position();
     if (pos != this->position) {
       if (pos == COVER_OPEN) {
-        this->tx_buffer_.push(gen_control_cmd(OPEN));
-
+        if (this->current_operation != COVER_OPERATION_OPENING) {
+          this->tx_buffer_.push(gen_control_cmd(OPEN));
+        }
       } else if (pos == COVER_CLOSED) {
-        this->tx_buffer_.push(gen_control_cmd(CLOSE));
-
+        if (this->current_operation != COVER_OPERATION_CLOSING) {
+          this->tx_buffer_.push(gen_control_cmd(CLOSE));
+        }
       } /*else {
           uint8_t data[3] = {CONTROL, SET_POSITION, (uint8_t)(pos * 100)};
           this->send_command_(data, 3);
