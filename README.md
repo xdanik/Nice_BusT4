@@ -28,7 +28,7 @@ Physical transmission often occurs through CAN transceivers, but there are no CA
 * Assembled a prototype device, tested the work.
 * Compiled a sniffer to catch packets between OVIEW and busT4 devices
 * Wrote a component that has the ability to control drives and receivers using the BusT4 protocol
-* I checked the work on Wingo5000 with MCA5 block, Robus RB500HS, SO2000, Rd400.
+* I checked the work on Wingo5000 with MCA5 block, Robus RB500HS, SO2000, Rd400, DPRO924.
 
 ![alt text](img/Schematic_esphome_bust4_adapter.png "bus-t4 adapter diagram")
 
@@ -58,5 +58,6 @@ During startup and operation, ESP polls the devices connected to the BusT4 bus a
 # Updates
 * Services have been added to the component interface to make it easier to start the leaf length recognition procedure and the BlueBus device recognition procedure without disassembling the drive housing (and even being remotely).
 * Added output to the configuration log of the states L1, L2, L3 read from the device (Automatic closing, close after photocell, always close)
+* Improved compatibility with DPRO924 drives
 
 If you are interested in the project, you can [buy me a beer or coffee](https://yoomoney.ru/to/4100117927279918)

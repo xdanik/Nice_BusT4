@@ -125,6 +125,7 @@ enum motor_type  : uint8_t {
   SWING = 0x03,
   BARRIER = 0x04,
   UPANDOVER = 0x05,
+  UNKNOWN = 0x55,
 };
 
 // 9th byte
@@ -187,7 +188,7 @@ enum setup_submnu  : uint8_t {
   HWR = 0x0a, // Hardware version
   FRM = 0x0b, // Firmware version
   DSC = 0x0c, // Description
-  CUR_POS = 0x11, // Current position of automation
+  CUR_POS = 0x11, // Current position of automation (DPRO924 then waits for positions to be set)
   MAX_OPN = 0x12, // The maximum possible opening according to the encoder.
   POS_MAX = 0x18, // Maximum position (opening) by encoder
   POS_MIN = 0x19, // Minimum position (closing) by encoder
@@ -367,7 +368,7 @@ class NiceBusT4 : public Component, public Cover {
     float last_published_pos_;
 
 	
-    uint8_t class_gate_ = 0x55; // 0x01 sliding, 0x02 sectional, 0x03 swing, 0x04 barrier, 0x05 up-and-over
+    uint8_t class_gate_ = UNKNOWN; // 0x01 sliding, 0x02 sectional, 0x03 swing, 0x04 barrier, 0x05 up-and-over
 //    uint8_t last_init_command_;
 	
     bool init_cu_flag = false;	

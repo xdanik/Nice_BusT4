@@ -33,9 +33,6 @@ void NiceBusT4::control(const CoverCall &call) {
     this->tx_buffer_.push(gen_control_cmd(STOP));
     this->tx_buffer_.push(gen_inf_cmd(FOR_CU, INF_STATUS, GET)); // Gate status (Open/Closed/Stopped)
     this->tx_buffer_.push(gen_inf_cmd(FOR_CU, CUR_POS, GET)); // query of the conditional current position of the actuator
-
-
-
   } else if (call.get_position().has_value()) {
     auto pos = *call.get_position();
     if (pos != this->position) {
@@ -66,6 +63,14 @@ void NiceBusT4::setup() {
 }
 
 void NiceBusT4::loop() {
+  if ((millis() - this->last_update_) > 600000) {
+      // retry drive detection if drive not detected
+      if (this->class_gate_ == UNKNOWN) {
+        this->tx_buffer_.push(gen_inf_cmd(0x00, 0xff, FOR_ALL, WHO, GET, 0x00));
+      }
+      this->last_update_ = millis();
+  }
+
   // allow sending every 100 ms
   const uint32_t now = millis();
   if (now - this->last_uart_byte_ > 100) {
@@ -725,7 +730,7 @@ std::vector<uint8_t> NiceBusT4::gen_control_cmd(const uint8_t control_cmd) {
   frame.push_back(CONTROL);
   frame.push_back(RUN);
   frame.push_back(control_cmd);
-  frame.push_back(0x00);
+  frame.push_back(0x64); // OFFSET CMD (most drives works with 0x00 but DPRO924 requires 0x64)
   uint8_t crc2 = (frame[7] ^ frame[8] ^ frame[9] ^ frame[10]);
   frame.push_back(crc2);
   uint8_t f_size = frame.size();
