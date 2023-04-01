@@ -217,7 +217,7 @@ namespace esphome {
                                     break; // 0x02
 
                             }  // switch 16
-                            this->publish_state();
+                            this->publish_state(false);
 
                             break; //  INF_IO
 
@@ -243,7 +243,7 @@ namespace esphome {
                             this->_pos_usl = (data[14] << 8) + data[15];
                             this->position = (_pos_usl - _pos_cls) * 1.0f / (_pos_opn - _pos_cls);
                             ESP_LOGI(TAG, "Current gate position: %d, position in %%: %f", _pos_usl, (_pos_usl - _pos_cls) * 100.0f / (_pos_opn - _pos_cls));
-                            this->publish_state();
+                            this->publish_state(false);
                             break;
 
                         case 0x01:
@@ -264,7 +264,7 @@ namespace esphome {
                                     //          this->position = COVER_OPEN;
                                     break;
                             }  // switch
-                            this->publish_state();
+                            this->publish_state(false);
                             break;
 
                         case AUTOCLS:
@@ -436,7 +436,7 @@ namespace esphome {
                                     default:
                                         ESP_LOGI(TAG, "Operation: %X", data[11]);
                                 }
-                                this->publish_state();
+                                this->publish_state(false);
                                 break;
 
                             case STA:
@@ -473,7 +473,7 @@ namespace esphome {
                                 this->_pos_usl = (data[12] << 8) + data[13];
                                 this->position = (_pos_usl - _pos_cls) * 1.0f / (_pos_opn - _pos_cls);
                                 ESP_LOGD(TAG, "Current gate position: %d, position in %%: %f", _pos_usl, (_pos_usl - _pos_cls) * 100.0f / (_pos_opn - _pos_cls));
-                                this->publish_state();
+                                this->publish_state(false);
                                 break;
                             default:
                                 ESP_LOGI(TAG, "Submenu %X", data[10]);
