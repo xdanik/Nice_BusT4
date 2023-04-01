@@ -173,8 +173,6 @@ namespace esphome {
             if ((data[1] == (data[12] + 0xd)) && (data[13] == NOERR)) { // if evt
                 ESP_LOGD(TAG, "An EVT data packet has been received. Data size %d ", data[12]);
                 std::vector<uint8_t> vec_data(this->rx_buffer.begin() + 14, this->rx_buffer.end() - 2);
-                std::string str(this->rx_buffer.begin() + 14, this->rx_buffer.end() - 2);
-                ESP_LOGI(TAG, "Data line: %S ", str.c_str());
                 std::string pretty_data = format_hex_pretty(vec_data);
                 ESP_LOGI(TAG, "HEX data %S ", pretty_data.c_str());
                 // received a package with EVT data, we begin to disassemble
@@ -373,8 +371,6 @@ namespace esphome {
             } else if ((data[14] == NOERR) && (data[1] > 0x0d)) { // otherwise, the Responce packet - confirmation of the received command
                 ESP_LOGD(TAG, "RSP package received");
                 std::vector<uint8_t> vec_data(this->rx_buffer.begin() + 12, this->rx_buffer.end() - 3);
-                std::string str(this->rx_buffer.begin() + 12, this->rx_buffer.end() - 3);
-                ESP_LOGI(TAG, "Data line: %S ", str.c_str());
                 std::string pretty_data = format_hex_pretty(vec_data);
                 ESP_LOGI(TAG, "HEX data %S ", pretty_data.c_str());
                 switch (data[9]) { // cmd_mnu
