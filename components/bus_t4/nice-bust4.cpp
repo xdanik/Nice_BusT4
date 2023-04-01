@@ -56,6 +56,13 @@ namespace esphome {
                     this->tx_buffer.push(gen_inf_cmd(0x00, 0xff, FOR_ALL, WHO, GET, 0x00));
                     this->last_detect_millis = millis();
                 }
+            } else {
+                if (this->status_update_interval && this->tx_buffer.empty() && (millis() - this->last_received_status_millis) > this->status_update_interval) {
+                    this->tx_buffer.push(gen_inf_cmd(FOR_CU, INF_STATUS, GET)); // Gate status (Open/Closed/Stopped)
+                    if (this->_max_opn > 0) {
+                        this->tx_buffer.push(gen_inf_cmd(FOR_CU, CUR_POS, GET)); // query of the conditional current position of the actuator
+                    }
+                }
             }
 
             while (uart_rx_available(_uart) > 0) {
@@ -216,8 +223,9 @@ namespace esphome {
                                     this->position = COVER_OPEN;
                                     break; // 0x02
 
-                            }  // switch 16
+                            }
                             this->publish_state(false);
+                            this->last_received_status_millis = millis();
 
                             break; //  INF_IO
 
@@ -244,6 +252,7 @@ namespace esphome {
                             this->position = (_pos_usl - _pos_cls) * 1.0f / (_pos_opn - _pos_cls);
                             ESP_LOGI(TAG, "Current gate position: %d, position in %%: %f", _pos_usl, (_pos_usl - _pos_cls) * 100.0f / (_pos_opn - _pos_cls));
                             this->publish_state(false);
+                            this->last_received_status_millis = millis();
                             break;
 
                         case 0x01:
@@ -263,8 +272,9 @@ namespace esphome {
                                     this->current_operation = COVER_OPERATION_IDLE;
                                     //          this->position = COVER_OPEN;
                                     break;
-                            }  // switch
+                            }
                             this->publish_state(false);
+                            this->last_received_status_millis = millis();
                             break;
 
                         case AUTOCLS:
@@ -437,6 +447,7 @@ namespace esphome {
                                         ESP_LOGI(TAG, "Operation: %X", data[11]);
                                 }
                                 this->publish_state(false);
+                                this->last_received_status_millis = millis();
                                 break;
 
                             case STA:
@@ -474,6 +485,7 @@ namespace esphome {
                                 this->position = (_pos_usl - _pos_cls) * 1.0f / (_pos_opn - _pos_cls);
                                 ESP_LOGD(TAG, "Current gate position: %d, position in %%: %f", _pos_usl, (_pos_usl - _pos_cls) * 100.0f / (_pos_opn - _pos_cls));
                                 this->publish_state(false);
+                                this->last_received_status_millis = millis();
                                 break;
                             default:
                                 ESP_LOGI(TAG, "Submenu %X", data[10]);

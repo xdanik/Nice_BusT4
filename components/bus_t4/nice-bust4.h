@@ -347,6 +347,9 @@ struct packet_rsp_body_t {
               this->update_interval_ = update_interval;
             }
             */
+            void set_update_interval(uint32_t update_interval) {
+                this->status_update_interval = update_interval;
+            }
 
             cover::CoverTraits get_traits() override;
 
@@ -355,6 +358,8 @@ struct packet_rsp_body_t {
 
             uint32_t last_detect_millis = 0;
             uint32_t last_received_byte_millis = 0;
+            uint32_t last_received_status_millis = 0;
+            uint32_t status_update_interval = 0;
 
             uint8_t gate_class = UNKNOWN;
 
