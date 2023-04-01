@@ -14,3 +14,7 @@
 /examples/*/*.h
 **/tests/test_*
 **/__pycache__
+**/.idea/
+cmake-build-debug/
+CMakeLists.txt
+components/bus_t4/esphome
