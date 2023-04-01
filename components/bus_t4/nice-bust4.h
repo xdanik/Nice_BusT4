@@ -215,7 +215,7 @@ namespace esphome {
             STOP = 0x02,   /* Stop */
             OPEN = 0x03,   /* Open */
             CLOSE = 0x04,  /* Close */
-            P_OPN1 = 0x05, /* Partial opening 1 - частичное открывание, режим калитки */
+            P_OPN1 = 0x05, /* Partial opening 1 */
             P_OPN2 = 0x06, /* Partial opening 2 */
             P_OPN3 = 0x07, /* Partial opening 3 */
             RSP = 0x19, /* interface response acknowledging receipt of the command  */
@@ -327,13 +327,13 @@ struct packet_rsp_body_t {
 
             void send_raw_cmd(std::string data);
 
-            void send_cmd(uint8_t data) { this->tx_buffer_.push(gen_control_cmd(data)); }
+            void send_cmd(uint8_t data) { this->tx_buffer.push(gen_control_cmd(data)); }
 
             void send_inf_cmd(std::string to_addr, std::string whose, std::string command, std::string type_command, std::string next_data, bool data_on, std::string data_command); // long command
             void set_mcu(std::string command, std::string data_command); // command to the motor controller
 
 
-            void set_class_gate(uint8_t class_gate) { class_gate_ = class_gate; }
+            void set_class_gate(uint8_t class_gate) { gate_class = class_gate; }
 
             void set_to_address(uint16_t to_address) { this->to_addr = to_address; }
 
@@ -353,23 +353,14 @@ struct packet_rsp_body_t {
         protected:
             void control(const cover::CoverCall &call) override;
 
-            void send_command_(const uint8_t *data, uint8_t len);
+            uint32_t last_detect_millis = 0;
+            uint32_t last_received_byte_millis = 0;
 
-            uint32_t update_interval_{500};
-            uint32_t last_update_{0};
-            uint32_t last_uart_byte_{0};
-
-            uint8_t last_published_op_;
-            float last_published_pos_;
-
-            uint8_t class_gate_ = UNKNOWN; // 0x01 sliding, 0x02 sectional, 0x03 swing, 0x04 barrier, 0x05 up-and-over
-
-            bool init_cu_flag = false;
-            bool init_oxi_flag = false;
+            uint8_t gate_class = UNKNOWN;
 
             // variables for uart
-            uint8_t _uart_nr;
             uart_t *_uart = nullptr;
+
             uint16_t _max_opn = 0;  // maximum encoder or timer position
             uint16_t _pos_opn = 2048;  // encoder or timer opening position, not for all drives
             uint16_t _pos_cls = 0;  // encoder or timer close position, not for all drives
@@ -382,37 +373,36 @@ struct packet_rsp_body_t {
             std::vector<uint8_t> raw_cmd_prepare(std::string data); // preparation of user-entered data for the possibility of sending
 
             // inf command generation
-            std::vector<uint8_t>
-            gen_inf_cmd(const uint8_t to_addr1, const uint8_t to_addr2, const uint8_t whose, const uint8_t inf_cmd, const uint8_t run_cmd, const uint8_t next_data, const std::vector<uint8_t> &data, size_t len);     // all fields
+            std::vector<uint8_t> gen_inf_cmd(uint8_t to_addr1, uint8_t to_addr2, uint8_t whose, uint8_t inf_cmd, uint8_t run_cmd, uint8_t next_data, const std::vector<uint8_t> &data, size_t len);
+            // for commands without data
             std::vector<uint8_t> gen_inf_cmd(const uint8_t whose, const uint8_t inf_cmd, const uint8_t run_cmd) {
                 return gen_inf_cmd((uint8_t) (this->to_addr >> 8), (uint8_t) (this->to_addr & 0xFF), whose, inf_cmd, run_cmd, 0x00, {0x00}, 0);
-            } // for commands without data
+            }
+            // for commands with data
             std::vector<uint8_t> gen_inf_cmd(const uint8_t whose, const uint8_t inf_cmd, const uint8_t run_cmd, const uint8_t next_data, std::vector<uint8_t> data) {
                 return gen_inf_cmd((uint8_t) (this->to_addr >> 8), (uint8_t) (this->to_addr & 0xFF), whose, inf_cmd, run_cmd, next_data, data, data.size());
-            } // for commands with data
+            }
+            // for commands with address and without data
             std::vector<uint8_t> gen_inf_cmd(const uint8_t to_addr1, const uint8_t to_addr2, const uint8_t whose, const uint8_t inf_cmd, const uint8_t run_cmd, const uint8_t next_data) {
                 return gen_inf_cmd(to_addr1, to_addr2, whose, inf_cmd, run_cmd, next_data, {0x00}, 0);
-            } // for commands with address and without data
+            }
 
             // generating cmd commands
-            std::vector<uint8_t> gen_control_cmd(const uint8_t control_cmd);
+            std::vector<uint8_t> gen_control_cmd(uint8_t control_cmd);
 
-            void init_device(const uint8_t addr1, const uint8_t addr2, const uint8_t device);
+            void init_device(uint8_t addr1, uint8_t addr2, uint8_t device);
 
             void send_array_cmd(std::vector<uint8_t> data);
-
             void send_array_cmd(const uint8_t *data, size_t len);
-
 
             void parse_status_packet(const std::vector<uint8_t> &data); // parsing the status package
 
-            void handle_char_(uint8_t c); // received byte handler
-            void handle_datapoint_(const uint8_t *buffer, size_t len); // received data handler
-            bool validate_message_(); // function of checking the received message
+            void handle_received_byte(uint8_t c); // received byte handler
+            bool validate_received_message(); // function of checking the received message
 
-            std::vector<uint8_t> rx_message_; // here the received message is accumulated byte by byte
-            std::queue<std::vector<uint8_t>> tx_buffer_; // command queue to send
-            bool ready_to_tx_{true}; // command flag
+            std::vector<uint8_t> rx_buffer;
+            std::queue<std::vector<uint8_t>> tx_buffer;
+            bool ready_to_tx = true;
 
             std::vector<uint8_t> manufacturer_;
             std::vector<uint8_t> product_;
