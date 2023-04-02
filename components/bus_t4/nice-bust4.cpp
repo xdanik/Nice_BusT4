@@ -32,7 +32,7 @@ namespace esphome {
                         }
                     }/* else {
                       uint8_t data[3] = {CONTROL, SET_POSITION, (uint8_t)(pos * 100)};
-                      this->send_command_(data, 3);
+                      this->send_array_cmd(data, 3);
                     }*/
                 }
             } else if (call.get_toggle()) {
@@ -219,7 +219,7 @@ namespace esphome {
                                     break; // 0x02
 
                             }
-                            this->publish_state(false);
+                            this->publish_state_if_changed();
                             this->last_received_status_millis = millis();
                             break;
 
@@ -244,7 +244,7 @@ namespace esphome {
                             this->_pos_usl = (data[14] << 8) + data[15];
                             this->position = (_pos_usl - _pos_cls) * 1.0f / (_pos_opn - _pos_cls);
                             ESP_LOGI(TAG, "Current gate position: %d, position in %%: %f", _pos_usl, (_pos_usl - _pos_cls) * 100.0f / (_pos_opn - _pos_cls));
-                            this->publish_state(false);
+                            this->publish_state_if_changed();
                             this->last_received_status_millis = millis();
                             break;
 
@@ -266,7 +266,7 @@ namespace esphome {
                                     //          this->position = COVER_OPEN;
                                     break;
                             }
-                            this->publish_state(false);
+                            this->publish_state_if_changed();
                             this->last_received_status_millis = millis();
                             break;
 
@@ -436,7 +436,7 @@ namespace esphome {
                                     default:
                                         ESP_LOGI(TAG, "Operation: %X", data[11]);
                                 }
-                                this->publish_state(false);
+                                this->publish_state_if_changed();
                                 this->last_received_status_millis = millis();
                                 break;
 
@@ -474,7 +474,7 @@ namespace esphome {
                                 this->_pos_usl = (data[12] << 8) + data[13];
                                 this->position = (_pos_usl - _pos_cls) * 1.0f / (_pos_opn - _pos_cls);
                                 ESP_LOGD(TAG, "Current gate position: %d, position in %%: %f", _pos_usl, (_pos_usl - _pos_cls) * 100.0f / (_pos_opn - _pos_cls));
-                                this->publish_state(false);
+                                this->publish_state_if_changed();
                                 this->last_received_status_millis = millis();
                                 break;
                             default:
@@ -716,6 +716,16 @@ namespace esphome {
             this->tx_buffer.push(gen_inf_cmd(FOR_CU, INF_STATUS, GET));
             if (this->supports_querying_position()) {
                 this->tx_buffer.push(gen_inf_cmd(FOR_CU, CUR_POS, GET));
+            }
+        }
+
+        void NiceBusT4::publish_state_if_changed() {
+            if (this->last_published_current_operation != this->current_operation
+                || this->last_published_position != this->position 
+            ) {
+                this->publish_state(false);
+                this->last_published_current_operation = this->current_operation;
+                this->last_published_position = this->position;
             }
         }
     }

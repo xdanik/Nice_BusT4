@@ -369,6 +369,9 @@ struct packet_rsp_body_t {
 
             uint8_t gate_class = UNKNOWN;
 
+            CoverOperation last_published_current_operation = COVER_OPERATION_IDLE;
+            float last_published_position;
+
             // variables for uart
             uart_t *_uart = nullptr;
 
@@ -414,6 +417,8 @@ struct packet_rsp_body_t {
             bool supports_querying_position() const;
 
             void query_status();
+
+            void publish_state_if_changed();
 
             std::vector<uint8_t> rx_buffer;
             std::queue<std::vector<uint8_t>> tx_buffer;
