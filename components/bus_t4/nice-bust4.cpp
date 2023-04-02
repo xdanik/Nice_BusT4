@@ -17,26 +17,26 @@ namespace esphome {
 
         void NiceBusT4::control(const CoverCall &call) {
             if (call.get_stop()) {
-                // uint8_t data[2] = {CONTROL, STOP};
-                this->tx_buffer.push(gen_control_cmd(STOP));
-                this->tx_buffer.push(gen_inf_cmd(FOR_CU, INF_STATUS, GET)); // Gate status (Open/Closed/Stopped)
-                this->tx_buffer.push(gen_inf_cmd(FOR_CU, CUR_POS, GET)); // query of the conditional current position of the actuator
+                this->send_cmd(STOP);
+                this->query_status();
             } else if (call.get_position().has_value()) {
                 auto pos = *call.get_position();
                 if (pos != this->position) {
                     if (pos == COVER_OPEN) {
                         if (this->current_operation != COVER_OPERATION_OPENING) {
-                            this->tx_buffer.push(gen_control_cmd(OPEN));
+                            this->send_cmd(OPEN);
                         }
                     } else if (pos == COVER_CLOSED) {
                         if (this->current_operation != COVER_OPERATION_CLOSING) {
-                            this->tx_buffer.push(gen_control_cmd(CLOSE));
+                            this->send_cmd(CLOSE);
                         }
                     }/* else {
                       uint8_t data[3] = {CONTROL, SET_POSITION, (uint8_t)(pos * 100)};
                       this->send_command_(data, 3);
                     }*/
                 }
+            } else if (call.get_toggle()) {
+                this->send_cmd(SBS);
             }
         }
 
@@ -58,10 +58,7 @@ namespace esphome {
                 }
             } else {
                 if (this->status_update_interval && this->tx_buffer.empty() && (millis() - this->last_received_status_millis) > this->status_update_interval) {
-                    this->tx_buffer.push(gen_inf_cmd(FOR_CU, INF_STATUS, GET)); // Gate status (Open/Closed/Stopped)
-                    if (this->_max_opn > 0) {
-                        this->tx_buffer.push(gen_inf_cmd(FOR_CU, CUR_POS, GET)); // query of the conditional current position of the actuator
-                    }
+                    this->query_status();
                 }
             }
 
@@ -224,11 +221,9 @@ namespace esphome {
                             }
                             this->publish_state(false);
                             this->last_received_status_millis = millis();
+                            break;
 
-                            break; //  INF_IO
-
-                            // encoder maximum opening position, open, close
-                        case MAX_OPN:
+                        case MAX_OPN: // encoder maximum opening position, open, close
                             this->_max_opn = (data[14] << 8) + data[15];
                             ESP_LOGI(TAG, "Maximum encoder position: %d", this->_max_opn);
                             break;
@@ -253,7 +248,7 @@ namespace esphome {
                             this->last_received_status_millis = millis();
                             break;
 
-                        case 0x01:
+                        case INF_STATUS:
                             switch (data[14]) {
                                 case OPENED:
                                     ESP_LOGI(TAG, "  gate open");
@@ -311,7 +306,6 @@ namespace esphome {
 
                     switch (data[10]) {
                         case MAN:
-                            //       ESP_LOGCONFIG(TAG, "  Производитель: %S ", str.c_str());
                             this->manufacturer_.assign(this->rx_buffer.begin() + 14, this->rx_buffer.end() - 2);
                             break;
                         case PRD:
@@ -435,7 +429,7 @@ namespace esphome {
                                         }
                                         break;
                                     case STOPPED:
-                                    case 0x10: // partialy oppened
+                                    case PARTIALLY_OPENED:
                                         this->current_operation = COVER_OPERATION_IDLE;
                                         ESP_LOGI(TAG, "Operation: Stopped");
                                         break;
@@ -711,6 +705,17 @@ namespace esphome {
                 tx_buffer.push(gen_inf_cmd(addr1, addr2, FOR_ALL, HWR, GET, 0x00));
                 tx_buffer.push(gen_inf_cmd(addr1, addr2, FOR_ALL, FRM, GET, 0x00));
                 tx_buffer.push(gen_inf_cmd(addr1, addr2, FOR_ALL, DSC, GET, 0x00));
+            }
+        }
+
+        bool NiceBusT4::supports_querying_position() const {
+            return this->_max_opn > 0;
+        }
+
+        void NiceBusT4::query_status() {
+            this->tx_buffer.push(gen_inf_cmd(FOR_CU, INF_STATUS, GET));
+            if (this->supports_querying_position()) {
+                this->tx_buffer.push(gen_inf_cmd(FOR_CU, CUR_POS, GET));
             }
         }
     }

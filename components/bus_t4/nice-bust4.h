@@ -103,7 +103,13 @@ namespace esphome {
 
         /* used in STA responses */
         enum sub_run_cmd2 : uint8_t {
-            STA_OPENING = 0x02, STA_CLOSING = 0x03, OPENED = 0x04, CLOSED = 0x05, STOPPED = 0x08, ENDTIME = 0x06, // finished maneuver with timeout
+            STA_OPENING = 0x02,
+            STA_CLOSING = 0x03,
+            OPENED = 0x04,
+            CLOSED = 0x05,
+            STOPPED = 0x08,
+            PARTIALLY_OPENED = 0X10,
+            ENDTIME = 0x06, // finished maneuver with timeout
         };
 
         /* Errors */
@@ -404,6 +410,10 @@ struct packet_rsp_body_t {
 
             void handle_received_byte(uint8_t c); // received byte handler
             bool validate_received_message(); // function of checking the received message
+
+            bool supports_querying_position() const;
+
+            void query_status();
 
             std::vector<uint8_t> rx_buffer;
             std::queue<std::vector<uint8_t>> tx_buffer;
