@@ -1,5 +1,5 @@
-#отправляет пакеты через uart в шину Nice BUS T4
-#тест на Wemos D1 mini
+#sends packets via uart to the Nice BUS T4
+#test on Wemos D1 mini
 
 substitutions:
   device_name: "nice-bust4-uart"
@@ -19,7 +19,7 @@ external_components:
 #  - source: my_components
 
 
-# включаем отладку для поиска причины перезагрузки через лог
+# enable debugging to find the cause of the reboot through logging
 debug:
     
 # Enable logging
@@ -30,9 +30,9 @@ logger:
   
 # Enable Home Assistant API
 api:
-  reboot_timeout: 0s # иначе перезагружается при отключении от hassio  
+  reboot_timeout: 0s # otherwise reboots when disconnected from hassio  
   services:
-# для отправки hex команд на привод
+# to send hex commands to the bus T4
   - service: raw_command
     variables:
         raw_cmd: string
@@ -53,13 +53,13 @@ api:
       lambda: |-
         my_nice_cover -> NiceBusT4::send_inf_cmd(to_addr, whose, command, type_command, next_data, data_on, data_command);
 
-# распознавание длины створки
+# sash length recognition
   - service: gate_length_recognition
     then:
       lambda: |-
          rb500hs -> NiceBusT4::set_mcu("0b","01");
 
-# распознавание устройств BlueBus
+# BlueBus device recognition
   - service: devices_recognition
     then:
       lambda: |-
@@ -111,10 +111,10 @@ web_server:
   port: 80
   
 
-# Кнопки для отправки команд
+# Buttons for sending commands
 button:
   - platform: template
-    name: Пошагово
+    name: Step-by-step
     id: sbs
     on_press:
       lambda: |-
@@ -124,7 +124,7 @@ button:
 
 
   - platform: template
-    name: Частичное открытие 1
+    name: Partial opening 1
     id: p_opn1
     on_press:
       lambda: |-
@@ -138,19 +138,19 @@ button:
 #         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::P_OPN4);
 #         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::P_OPN5);
 #         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::P_OPN6);
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::UNLK_OPN);  # Разблокировать и открыть 
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::CLS_LOCK);  # Закрыть и блокировать
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::UNLCK_CLS); # Разблокировать и Закрыть
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::LOCK);      # Блокировать
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::UNLOCK);    # Разблокировать
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::HOST_SBS);  # Ведущий SBS
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::HOST_OPN);  # Ведущий открыть
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::HOST_CLS);  # Ведущий закрыть
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::SLAVE_SBS); # Ведомый SBS
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::SLAVE_OPN); # Ведомый открыть
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::SLAVE_CLS); # Ведомый закрыть
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::AUTO_ON);   # Автооткрывание активно
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::AUTO_OFF);  # Автооткрывание неактивно
+#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::UNLK_OPN);  # Unlock and open 
+#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::CLS_LOCK);  # Close and Lock 
+#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::UNLCK_CLS); # Unlock and Close
+#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::LOCK);      # Lock
+#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::UNLOCK);    # UnLock
+#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::HOST_SBS);  # Host SBS
+#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::HOST_OPN);  # Host Open
+#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::HOST_CLS);  # Host Close
+#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::SLAVE_SBS); # Slave SBS
+#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::SLAVE_OPN); # Slave Open
+#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::SLAVE_CLS); # Slave Close
+#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::AUTO_ON);   # Auto-opening active
+#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::AUTO_OFF);  # Auto-opening is inactive
 
 
 
@@ -159,5 +159,5 @@ cover:
 - platform: bus_t4
   name: "Nice RB500HS"
   id: my_nice_cover
-#  address: 0x0003            # адрес привода
-#  use_address: 0x0081        # адрес шлюза
+#  address: 0x0003            # drive address
+#  use_address: 0x0081        # gateway address
