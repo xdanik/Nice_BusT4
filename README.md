@@ -1,3 +1,6 @@
+Russian translation available
+[Russian](https://github.com/pruwait/Nice_BusT4)
+
 # ESPHOME component to control Nice drives via Bus T4 protocol
 # Nice Bus T4 protocol
 
