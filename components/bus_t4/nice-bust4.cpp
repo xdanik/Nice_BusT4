@@ -730,3 +730,4 @@ namespace esphome {
         }
     }
 }
+
