@@ -41,6 +41,10 @@ namespace esphome {
         }
 
         void NiceBusT4::setup() {
+            // force default state to closed and idle
+            this->position = COVER_CLOSED;
+            this->current_operation = COVER_OPERATION_IDLE;
+
             _uart = uart_init(_UART_NO, BAUD_WORK, SERIAL_8N1, SERIAL_FULL, TX_P, 256, false);
             delay(500);
 
